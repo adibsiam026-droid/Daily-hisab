@@ -1,0 +1,64 @@
+{
+  "entities": {
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A single daily income or expense transaction in Bangladeshi Taka (BDT).",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID of the transaction owner."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["INCOME", "EXPENSE"],
+          "description": "Transaction direction: INCOME or EXPENSE."
+        },
+        "amount": {
+          "type": "number",
+          "description": "Positive monetary amount in Bangladeshi Taka (BDT)."
+        },
+        "category": {
+          "type": "string",
+          "description": "Category key for expenses (e.g. FOOD, TRANSPORT) or income source (e.g. SALARY, INCOME)."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional or income note describing the transaction."
+        },
+        "transactionDateMillis": {
+          "type": "integer",
+          "description": "Epoch milliseconds of the transaction date."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-assigned creation timestamp via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-assigned last modification timestamp via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "type",
+        "amount",
+        "category",
+        "description",
+        "transactionDateMillis",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": {
+        "$ref": "#/entities/Transaction"
+      },
+      "description": "Per-user subcollection storing all daily income and expense records."
+    }
+  }
+}

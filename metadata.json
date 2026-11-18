@@ -1,0 +1,6 @@
+{
+  "name": "Daily Hisab",
+  "description": "Track daily income and expenses in Bangladeshi Taka with Bengali and English support, interactive reports, charts, and secure cloud sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
