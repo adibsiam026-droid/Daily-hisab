@@ -22,7 +22,7 @@ import kotlinx.coroutines.tasks.await
 class TransactionRepository(
     private val db: FirebaseFirestore,
     private val auth: FirebaseAuth = Firebase.auth
-) {
+) : TransactionDataSource {
     constructor(context: Context) : this(
         FirebaseFirestore.getInstance(
             context.applicationContext.getString(R.string.firestore_database_id)
@@ -36,7 +36,7 @@ class TransactionRepository(
         return uid
     }
 
-    fun observeTransactions(userId: String): Flow<List<TransactionRecord>> = flow {
+    override fun observeTransactions(userId: String): Flow<List<TransactionRecord>> = flow {
         val uid = requireUserId(userId)
         val path = "users/$uid/transactions"
         emitAll(
@@ -65,7 +65,7 @@ class TransactionRepository(
         )
     }
 
-    suspend fun addTransaction(
+    override suspend fun addTransaction(
         userId: String,
         type: TransactionType,
         amount: Double,
@@ -108,7 +108,7 @@ class TransactionRepository(
         }
     }
 
-    suspend fun updateTransaction(
+    override suspend fun updateTransaction(
         userId: String,
         transactionId: String,
         type: TransactionType,
@@ -152,7 +152,7 @@ class TransactionRepository(
         }
     }
 
-    suspend fun deleteTransaction(
+    override suspend fun deleteTransaction(
         userId: String,
         transactionId: String
     ): Result<Unit> {

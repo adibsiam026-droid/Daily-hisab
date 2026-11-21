@@ -4,8 +4,8 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.TransactionCategory
+import com.example.data.TransactionDataSource
 import com.example.data.TransactionRecord
-import com.example.data.TransactionRepository
 import com.example.data.TransactionType
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class HisabViewModel(
-    private val repository: TransactionRepository,
+    private val repository: TransactionDataSource,
     private val currentUserId: String
 ) : ViewModel() {
 

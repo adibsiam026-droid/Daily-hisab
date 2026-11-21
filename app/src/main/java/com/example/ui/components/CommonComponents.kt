@@ -17,13 +17,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PersonOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,11 +45,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.credentials.CredentialManager
 import coil.compose.AsyncImage
+import com.example.auth.onGoogleSignInClicked
+import androidx.compose.runtime.rememberCoroutineScope
 import com.example.core.i18n.AppLanguage
 import com.example.core.i18n.Formatters
 import com.example.core.i18n.LocalAppStrings
@@ -55,9 +63,12 @@ import com.example.ui.theme.CardStroke
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.ExpenseRedSoft
 import com.example.ui.theme.IncomeGreen
+import com.example.ui.theme.IncomeGreenDeep
 import com.example.ui.theme.IncomeGreenSoft
 import com.example.ui.theme.PureWhite
 import com.example.ui.theme.SurfaceMuted
+import com.example.ui.theme.TakaGold
+import com.example.ui.theme.TakaGoldSoft
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
 import com.google.firebase.auth.FirebaseUser
@@ -225,6 +236,7 @@ fun TransactionItemCard(
 @Composable
 fun UserAvatarButton(
     user: FirebaseUser?,
+    isGuest: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -233,14 +245,18 @@ fun UserAvatarButton(
             .minimumInteractiveComponentSize()
             .size(40.dp)
             .clip(CircleShape)
-            .background(IncomeGreenSoft)
-            .border(1.5.dp, IncomeGreen.copy(alpha = 0.35f), CircleShape)
+            .background(if (isGuest) TakaGoldSoft else IncomeGreenSoft)
+            .border(
+                1.5.dp,
+                if (isGuest) TakaGold.copy(alpha = 0.45f) else IncomeGreen.copy(alpha = 0.35f),
+                CircleShape
+            )
             .clickable(onClick = onClick)
             .testTag("account_profile_button"),
         contentAlignment = Alignment.Center
     ) {
         val photoUrl = user?.photoUrl?.toString()
-        if (!photoUrl.isNullOrBlank()) {
+        if (!isGuest && !photoUrl.isNullOrBlank()) {
             AsyncImage(
                 model = photoUrl,
                 contentDescription = user.displayName ?: "Profile",
@@ -251,9 +267,9 @@ fun UserAvatarButton(
             )
         } else {
             Icon(
-                imageVector = Icons.Rounded.Person,
+                imageVector = if (isGuest) Icons.Rounded.PersonOutline else Icons.Rounded.Person,
                 contentDescription = "Profile",
-                tint = IncomeGreen,
+                tint = if (isGuest) TakaGold else IncomeGreen,
                 modifier = Modifier.size(22.dp)
             )
         }
@@ -263,29 +279,42 @@ fun UserAvatarButton(
 @Composable
 fun AccountProfileDialog(
     user: FirebaseUser?,
+    isGuest: Boolean,
     language: AppLanguage,
     onLanguageChange: (AppLanguage) -> Unit,
     onSignOutConfirmed: () -> Unit,
+    onExitGuestConfirmed: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val strings = LocalAppStrings.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val credentialManager = remember(context) { CredentialManager.create(context) }
+
     var showConfirmSignOut by remember { mutableStateOf(false) }
+    var isLinkingGoogle by remember { mutableStateOf(false) }
+    var authError by remember { mutableStateOf<String?>(null) }
 
     if (showConfirmSignOut) {
         AlertDialog(
             onDismissRequest = { showConfirmSignOut = false },
-            title = { Text(strings.signOutConfirmTitle) },
-            text = { Text(strings.signOutConfirmMessage) },
+            containerColor = PureWhite,
+            title = {
+                Text(if (isGuest) strings.exitGuestConfirmTitle else strings.signOutConfirmTitle)
+            },
+            text = {
+                Text(if (isGuest) strings.exitGuestConfirmMessage else strings.signOutConfirmMessage)
+            },
             confirmButton = {
                 Button(
                     onClick = {
                         showConfirmSignOut = false
                         onDismiss()
-                        onSignOutConfirmed()
+                        if (isGuest) onExitGuestConfirmed() else onSignOutConfirmed()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = ExpenseRed)
                 ) {
-                    Text(strings.signOut)
+                    Text(if (isGuest) strings.exitGuestMode else strings.signOut)
                 }
             },
             dismissButton = {
@@ -308,21 +337,32 @@ fun AccountProfileDialog(
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    UserAvatarButton(user = user, onClick = {})
+                    UserAvatarButton(user = user, isGuest = isGuest, onClick = {})
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = user?.displayName?.takeIf { it.isNotBlank() } ?: strings.appName,
+                            text = if (isGuest) {
+                                strings.guestDisplayName
+                            } else {
+                                user?.displayName?.takeIf { it.isNotBlank() } ?: strings.appName
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             color = TextPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        if (!user?.email.isNullOrBlank()) {
+                        if (isGuest) {
+                            Text(
+                                text = strings.guestModeBadge,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TakaGold,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        } else if (!user?.email.isNullOrBlank()) {
                             Text(
                                 text = user.email.orEmpty(),
                                 style = MaterialTheme.typography.bodySmall,
@@ -330,6 +370,98 @@ fun AccountProfileDialog(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                        }
+                    }
+                }
+
+                if (isGuest) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = IncomeGreenSoft,
+                        border = BorderStroke(1.dp, IncomeGreen.copy(alpha = 0.25f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.CloudUpload,
+                                    contentDescription = null,
+                                    tint = IncomeGreenDeep,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = strings.guestBackupTitle,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = IncomeGreenDeep
+                                )
+                            }
+                            Text(
+                                text = strings.guestBackupSubtitle,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondary
+                            )
+                            if (authError != null) {
+                                Text(
+                                    text = authError!!,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = ExpenseRed
+                                )
+                            }
+                            Button(
+                                onClick = {
+                                    authError = null
+                                    isLinkingGoogle = true
+                                    onGoogleSignInClicked(
+                                        context = context,
+                                        credentialManager = credentialManager,
+                                        onAuthSuccess = {
+                                            isLinkingGoogle = false
+                                            onDismiss()
+                                        },
+                                        onAuthError = { msg ->
+                                            isLinkingGoogle = false
+                                            authError = msg
+                                        },
+                                        scope = scope,
+                                        onAuthCancelled = {
+                                            isLinkingGoogle = false
+                                        }
+                                    )
+                                },
+                                enabled = !isLinkingGoogle,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = IncomeGreen,
+                                    contentColor = PureWhite
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .testTag("guest_upgrade_google_button")
+                            ) {
+                                if (isLinkingGoogle) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        color = PureWhite,
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.Login,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(strings.signInWithGoogle, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
                         }
                     }
                 }
@@ -384,7 +516,10 @@ fun AccountProfileDialog(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(strings.signOut, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = if (isGuest) strings.exitGuestMode else strings.signOut,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         },

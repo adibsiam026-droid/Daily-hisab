@@ -78,6 +78,7 @@ import com.google.firebase.auth.FirebaseUser
 fun DashboardScreen(
     transactions: List<TransactionRecord>,
     currentUser: FirebaseUser?,
+    isGuest: Boolean,
     language: AppLanguage,
     onLanguageChange: (AppLanguage) -> Unit,
     onOpenProfile: () -> Unit,
@@ -117,13 +118,17 @@ fun DashboardScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        val firstName = currentUser?.displayName
-                            ?.trim()
-                            ?.split(" ")
-                            ?.firstOrNull()
-                            ?.takeIf { it.isNotBlank() }
+                        val greetingName = if (isGuest) {
+                            strings.guestDisplayName
+                        } else {
+                            currentUser?.displayName
+                                ?.trim()
+                                ?.split(" ")
+                                ?.firstOrNull()
+                                ?.takeIf { it.isNotBlank() }
+                        }
                         Text(
-                            text = if (firstName != null) "${strings.welcomeBack}, $firstName" else strings.appName,
+                            text = if (greetingName != null) "${strings.welcomeBack}, $greetingName" else strings.appName,
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary,
@@ -131,7 +136,7 @@ fun DashboardScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = strings.appTagline,
+                            text = if (isGuest) strings.guestModeBadge else strings.appTagline,
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondary,
                             maxLines = 1,
@@ -149,6 +154,7 @@ fun DashboardScreen(
                         )
                         UserAvatarButton(
                             user = currentUser,
+                            isGuest = isGuest,
                             onClick = onOpenProfile
                         )
                     }

@@ -25,11 +25,13 @@ import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.CloudDone
 import androidx.compose.material.icons.automirrored.rounded.Login
+import androidx.compose.material.icons.rounded.PersonOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -72,7 +74,8 @@ import com.example.ui.theme.TextSecondary
 fun AuthScreen(
     language: AppLanguage,
     onLanguageChange: (AppLanguage) -> Unit,
-    onAuthSuccess: () -> Unit
+    onAuthSuccess: () -> Unit,
+    onContinueAsGuest: () -> Unit
 ) {
     val strings = LocalAppStrings.current
     val context = LocalContext.current
@@ -284,6 +287,45 @@ fun AuthScreen(
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = onContinueAsGuest,
+                    enabled = !isLoading,
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, CardStroke),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = PureWhite,
+                        contentColor = TextPrimary
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .testTag("guest_sign_in_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.PersonOutline,
+                        contentDescription = null,
+                        tint = IncomeGreen,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = strings.continueAsGuest,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = strings.guestModeNotice,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    textAlign = TextAlign.Center
+                )
 
                 Spacer(modifier = Modifier.height(16.dp))
             }

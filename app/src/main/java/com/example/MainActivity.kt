@@ -49,6 +49,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -77,6 +78,7 @@ import com.example.core.i18n.AppLanguage
 import com.example.core.i18n.LanguagePreferences
 import com.example.core.i18n.LocalAppStrings
 import com.example.core.i18n.stringsForLanguage
+import com.example.data.LocalGuestTransactionRepository
 import com.example.data.TransactionRecord
 import com.example.data.TransactionRepository
 import com.example.data.TransactionType
@@ -127,29 +129,93 @@ fun DailyHisabRoot() {
     val scope = rememberCoroutineScope()
     val languagePrefs = remember(context) { LanguagePreferences(context) }
     val language by languagePrefs.languageFlow.collectAsStateWithLifecycle(initialValue = AppLanguage.EN)
+    val isGuestMode by languagePrefs.isGuestModeFlow.collectAsStateWithLifecycle(initialValue = false)
     val strings = remember(language) { stringsForLanguage(language) }
 
+    val guestRepository = remember(context) { LocalGuestTransactionRepository(context) }
     val auth = remember { Firebase.auth }
     val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
 
     CompositionLocalProvider(LocalAppStrings provides strings) {
         DailyHisabTheme(useBengaliFont = language == AppLanguage.BN) {
             val user = currentUser
-            if (user == null) {
-                AuthScreen(
-                    language = language,
-                    onLanguageChange = { nextLang ->
-                        scope.launch { languagePrefs.setLanguage(nextLang) }
-                    },
-                    onAuthSuccess = {}
-                )
-            } else {
-                key(user.uid) {
-                    DailyHisabAuthenticatedShell(
-                        currentUser = user,
+            when {
+                user != null -> {
+                    var migrationToastMessage by remember(user.uid) { mutableStateOf<String?>(null) }
+                    LaunchedEffect(user.uid) {
+                        if (isGuestMode) {
+                            languagePrefs.setGuestMode(false)
+                        }
+                        val pendingGuestRecords = guestRepository.getSnapshot()
+                        if (pendingGuestRecords.isNotEmpty()) {
+                            val db = FirebaseFirestore.getInstance(
+                                context.applicationContext.getString(R.string.firestore_database_id)
+                            )
+                            val cloudRepo = TransactionRepository(db)
+                            var allMigrated = true
+                            for (record in pendingGuestRecords) {
+                                val res = cloudRepo.addTransaction(
+                                    userId = user.uid,
+                                    type = record.parsedType,
+                                    amount = record.amount,
+                                    category = record.parsedCategory,
+                                    description = record.description,
+                                    transactionDateMillis = record.transactionDateMillis
+                                )
+                                if (res.isFailure) {
+                                    allMigrated = false
+                                }
+                            }
+                            if (allMigrated) {
+                                guestRepository.clearAll()
+                                migrationToastMessage = strings.guestMigratedSuccess
+                            }
+                        }
+                    }
+                    key(user.uid) {
+                        DailyHisabAuthenticatedShell(
+                            currentUser = user,
+                            isGuest = false,
+                            guestRepository = guestRepository,
+                            initialNotice = migrationToastMessage,
+                            onConsumeInitialNotice = { migrationToastMessage = null },
+                            language = language,
+                            onLanguageChange = { nextLang ->
+                                scope.launch { languagePrefs.setLanguage(nextLang) }
+                            },
+                            onExitGuest = {}
+                        )
+                    }
+                }
+
+                isGuestMode -> {
+                    key(LocalGuestTransactionRepository.GUEST_USER_ID) {
+                        DailyHisabAuthenticatedShell(
+                            currentUser = null,
+                            isGuest = true,
+                            guestRepository = guestRepository,
+                            initialNotice = null,
+                            onConsumeInitialNotice = {},
+                            language = language,
+                            onLanguageChange = { nextLang ->
+                                scope.launch { languagePrefs.setLanguage(nextLang) }
+                            },
+                            onExitGuest = {
+                                scope.launch { languagePrefs.setGuestMode(false) }
+                            }
+                        )
+                    }
+                }
+
+                else -> {
+                    AuthScreen(
                         language = language,
                         onLanguageChange = { nextLang ->
                             scope.launch { languagePrefs.setLanguage(nextLang) }
+                        },
+                        onAuthSuccess = {},
+                        onContinueAsGuest = {
+                            scope.launch { languagePrefs.setGuestMode(true) }
                         }
                     )
                 }
@@ -160,9 +226,14 @@ fun DailyHisabRoot() {
 
 @Composable
 private fun DailyHisabAuthenticatedShell(
-    currentUser: FirebaseUser,
+    currentUser: FirebaseUser?,
+    isGuest: Boolean,
+    guestRepository: LocalGuestTransactionRepository,
+    initialNotice: String?,
+    onConsumeInitialNotice: () -> Unit,
     language: AppLanguage,
-    onLanguageChange: (AppLanguage) -> Unit
+    onLanguageChange: (AppLanguage) -> Unit,
+    onExitGuest: () -> Unit
 ) {
     val strings = LocalAppStrings.current
     val context = LocalContext.current
@@ -170,19 +241,39 @@ private fun DailyHisabAuthenticatedShell(
     val credentialManager = remember(context) { CredentialManager.create(context) }
     val snackbarHostState = remember { SnackbarHostState() }
 
+    LaunchedEffect(initialNotice) {
+        if (!initialNotice.isNullOrBlank()) {
+            snackbarHostState.showSnackbar(initialNotice)
+            onConsumeInitialNotice()
+        }
+    }
+
+    val sessionKey = if (isGuest) {
+        LocalGuestTransactionRepository.GUEST_USER_ID
+    } else {
+        currentUser!!.uid
+    }
+
     val viewModel: HisabViewModel = viewModel(
-        key = currentUser.uid,
+        key = sessionKey,
         factory = viewModelFactory {
             initializer {
-                val app = checkNotNull(this[APPLICATION_KEY]) {
-                    "APPLICATION_KEY missing from CreationExtras"
+                if (isGuest) {
+                    HisabViewModel(
+                        repository = guestRepository,
+                        currentUserId = LocalGuestTransactionRepository.GUEST_USER_ID
+                    )
+                } else {
+                    val app = checkNotNull(this[APPLICATION_KEY]) {
+                        "APPLICATION_KEY missing from CreationExtras"
+                    }
+                    val databaseId = app.getString(R.string.firestore_database_id)
+                    val db = FirebaseFirestore.getInstance(databaseId)
+                    HisabViewModel(
+                        repository = TransactionRepository(db),
+                        currentUserId = currentUser!!.uid
+                    )
                 }
-                val databaseId = app.getString(R.string.firestore_database_id)
-                val db = FirebaseFirestore.getInstance(databaseId)
-                HisabViewModel(
-                    repository = TransactionRepository(db),
-                    currentUserId = currentUser.uid
-                )
             }
         }
     )
@@ -207,11 +298,13 @@ private fun DailyHisabAuthenticatedShell(
     if (showAccountDialog) {
         AccountProfileDialog(
             user = currentUser,
+            isGuest = isGuest,
             language = language,
             onLanguageChange = onLanguageChange,
             onSignOutConfirmed = {
                 signOut(credentialManager = credentialManager, scope = scope)
             },
+            onExitGuestConfirmed = onExitGuest,
             onDismiss = { showAccountDialog = false }
         )
     }
@@ -425,6 +518,7 @@ private fun DailyHisabAuthenticatedShell(
                                 AppTab.DASHBOARD -> DashboardScreen(
                                     transactions = transactions,
                                     currentUser = currentUser,
+                                    isGuest = isGuest,
                                     language = language,
                                     onLanguageChange = onLanguageChange,
                                     onOpenProfile = { showAccountDialog = true },
