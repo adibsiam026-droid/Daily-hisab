@@ -35,7 +35,7 @@ jobs:
           JAVA_VERSION_OUTPUT="$(java -version 2>&1 || true)"
           echo "$JAVA_VERSION_OUTPUT"
 
-          RAW_VERSION="$(printf '%s\n' "$JAVA_VERSION_OUTPUT" | head -n 1 | sed -n 's/.*version "\([^"]*\)".*/\1/p')"
+          RAW_VERSION="$(printf '%s\n' "$JAVA_VERSION_OUTPUT" | sed -n 's/.*version "\([^"]*\)".*/\1/p' | head -n 1)"
           if [ -z "$RAW_VERSION" ]; then
             echo "::error::Unable to detect active Java version."
             exit 1
@@ -62,6 +62,45 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "9.3.1"
+
+      - name: Set up Android SDK licenses and platform
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK_ROOT" ]; then
+            echo "::error::Android SDK directory not found at $SDK_ROOT"
+            exit 1
+          fi
+
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+
+          SDKMANAGER=""
+          if [ -x "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          elif [ -d "$SDK_ROOT/cmdline-tools" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -maxdepth 3 -type f -name sdkmanager 2>/dev/null | head -n 1 || true)"
+          elif [ -x "$SDK_ROOT/tools/bin/sdkmanager" ]; then
+            SDKMANAGER="$SDK_ROOT/tools/bin/sdkmanager"
+          fi
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found inside $SDK_ROOT"
+            exit 1
+          fi
+
+          mkdir -p "$SDK_ROOT/licenses"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+
+          if [ ! -d "$SDK_ROOT/platforms/android-36.1" ] || [ ! -d "$SDK_ROOT/build-tools/36.0.0" ]; then
+            echo "Installing Android SDK Platform 36.1 and Build-Tools 36.0.0..."
+            yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install "platforms;android-36.1" "build-tools;36.0.0"
+          fi
+
+          if [ ! -d "$SDK_ROOT/platforms/android-36.1" ]; then
+            echo "::error::Android SDK Platform 36.1 is not installed at $SDK_ROOT/platforms/android-36.1"
+            exit 1
+          fi
+          echo "Android SDK Platform 36.1 and licenses are ready."
 
       - name: Create temporary debug keystore
         run: |
@@ -146,7 +185,7 @@ jobs:
             SANITIZED_REPO="android-app"
           fi
 
-          RELEASE_STAGE_DIR="$(mktemp -d "${RUNNER_TEMP}/release-asset-XXXXXX")"
+          RELEASE_STAGE_DIR="$(mktemp -d "${RUNNER_TEMP:-/tmp}/release-asset-XXXXXX")"
           ASSET_NAME="${SANITIZED_REPO}-debug-build-${GITHUB_RUN_NUMBER}.apk"
           ASSET_PATH="${RELEASE_STAGE_DIR}/${ASSET_NAME}"
 
@@ -185,7 +224,7 @@ jobs:
           RELEASE_TAG="debug-apk-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
           RELEASE_TITLE="Debug APK Build #${GITHUB_RUN_NUMBER}"
 
-          NOTES_FILE="$(mktemp "${RUNNER_TEMP}/release-notes-XXXXXX.md")"
+          NOTES_FILE="$(mktemp "${RUNNER_TEMP:-/tmp}/release-notes-XXXXXX.md")"
           printf '%s\n' \
             "This is an automatically generated debug APK built by GitHub Actions." \
             "" \
@@ -197,11 +236,12 @@ jobs:
             "> **Testing Notice:** This APK is intended for testing only. It is not a Play Store production release and is signed only with a temporary debug keystore." \
             > "$NOTES_FILE"
 
-          gh release create "$RELEASE_TAG" "$ASSET_PATH" \
+          RELEASE_URL="$(gh release create "$RELEASE_TAG" "$ASSET_PATH" \
             --title "$RELEASE_TITLE" \
             --target "$GITHUB_SHA" \
             --notes-file "$NOTES_FILE" \
-            --latest
+            --latest)"
+          echo "release_url=$RELEASE_URL" >> "$GITHUB_OUTPUT"
 
       - name: Report APK download result
         if: always()
@@ -209,14 +249,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           UPLOAD_OUTCOME: ${{ steps.upload_apk.outcome }}
           PUBLISH_OUTCOME: ${{ steps.publish_release.outcome }}
+          PUBLISH_URL: ${{ steps.publish_release.outputs.release_url }}
           ASSET_NAME: ${{ steps.prepare_release_asset.outputs.asset_name }}
         run: |
           RELEASE_TAG="debug-apk-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
           RELEASE_TITLE="Debug APK Build #${GITHUB_RUN_NUMBER}"
 
           if [ "$PUBLISH_OUTCOME" = "success" ]; then
-            gh release view "$RELEASE_TAG" --json tagName,name,url,assets
-            RELEASE_URL="$(gh release view "$RELEASE_TAG" --json url --jq '.url')"
+            gh release view "$RELEASE_TAG" --json tagName,name,url,assets || true
+            RELEASE_URL="${PUBLISH_URL:-}"
+            if [ -z "$RELEASE_URL" ]; then
+              RELEASE_URL="$(gh release view "$RELEASE_TAG" --json url --jq '.url' || true)"
+            fi
             echo "Release Tag: $RELEASE_TAG"
             echo "Release Title: $RELEASE_TITLE"
             echo "Release URL: $RELEASE_URL"
